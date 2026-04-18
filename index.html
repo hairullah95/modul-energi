@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-Modul Energi untuk Kehidupan</title>
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome Icons via CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- React & ReactDOM via CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel untuk kompilasi JSX langsung di browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Konfigurasi Animasi Kustom Tailwind -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          animation: {
+            'spin-slow': 'spin 3s linear infinite',
+            'fade-in': 'fadeIn 0.5s ease-in-out',
+          },
+          keyframes: {
+            fadeIn: {
+              '0%': { opacity: '0', transform: 'translateY(10px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans selection:bg-emerald-200">
+
+  <div id="root"></div>
+
+  <!-- Script ES Modules + React JSX -->
+  <script type="text/babel" data-type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const { useState, useEffect } = React;
+
+    /* =========================================================
+       FIREBASE CONFIGURATION
+       ========================================================= */
+    // Konfigurasi Firebase milik Anda (Siap untuk GitHub Pages)
+    const fallbackConfig = {
+      apiKey: "AIzaSyBfOxtpdcFFGS7Lp-W5yCA4zm3Uhs9w6fc",
+      authDomain: "modul-energi.firebaseapp.com",
+      projectId: "modul-energi",
+      storageBucket: "modul-energi.firebasestorage.app",
+      messagingSenderId: "315822709561",
+      appId: "1:315822709561:web:87e2f97286651360e466e8",
+      measurementId: "G-P4K6ETY3ZW"
+    };
+
+    const isCanvasEnv = typeof __firebase_config !== 'undefined';
+    const firebaseConfig = isCanvasEnv ? JSON.parse(__firebase_config) : fallbackConfig;
+    const appIdStr = typeof __app_id !== 'undefined' ? __app_id : 'emodul-energi-github';
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    /* =========================================================
+       MAIN APP COMPONENT (ROOT)
+       ========================================================= */
+    function App() {
+      const [fbUser, setFbUser] = useState(null);
+      const [view, setView] = useState('login'); // 'login', 'student', 'teacher'
+      const [userInfo, setUserInfo] = useState({ name: '', token: '', role: 'student' });
+      
+      // State Global untuk menyimpan jawaban siswa di setiap tahapan
+      const [globalData, setGlobalData] = useState({
+        stage2: { journal: '', scale: null },
+        stage3: { score: 0 },
+        stage4: { plans: ["", "", ""] },
+        stage5: { source: '', reasoning: '', reflection: '' }
+      });
+
+      // Inisialisasi Auth
+      useEffect(() => {
+        const initAuth = async () => {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (error) {
+            console.error("Firebase Auth Error:", error);
+          }
+        };
+        initAuth();
+
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+          setFbUser(user);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      if (!fbUser) {
+        return <div className="min-h-screen flex items-center justify-center font-bold text-emerald-600">Menghubungkan ke Database...</div>;
+      }
+
+      if (view === 'login') return <LoginScreen setView={setView} setUserInfo={setUserInfo} />;
+      if (view === 'teacher') return <TeacherDashboard userInfo={userInfo} onLogout={() => setView('login')} db={db} fbUser={fbUser} />;
+      
+      return <StudentApp userInfo={userInfo} globalData={globalData} setGlobalData={setGlobalData} onLogout={() => setView('login')} db={db} fbUser={fbUser} />;
+    }
+
+    /* =========================================================
+       LOGIN SCREEN
+       ========================================================= */
+    function LoginScreen({ setView, setUserInfo }) {
+      const [role, setRole] = useState('student');
+      const [name, setName] = useState('');
+      const [token, setToken] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if(!name || !token) {
+          alert("Nama dan Token Kelas harus diisi!");
+          return;
+        }
+        setUserInfo({ name, token: token.toUpperCase(), role });
+        setView(role);
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-emerald-800 to-slate-900">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md animate-fade-in relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+              <i className="fas fa-leaf text-[8rem]"></i>
+            </div>
+            
+            <div className="text-center mb-8 relative z-10">
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i className="fas fa-bolt text-3xl"></i>
+              </div>
+              <h1 className="text-2xl font-bold text-slate-800">E-Modul Energi</h1>
+              <p className="text-slate-500 text-sm mt-1">Portal Masuk Pembelajaran</p>
+            </div>
+
+            <div className="flex bg-slate-100 p-1 rounded-xl mb-6 relative z-10">
+              <button 
+                onClick={() => setRole('student')}
+                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${role === 'student' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                Siswa
+              </button>
+              <button 
+                onClick={() => setRole('teacher')}
+                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${role === 'teacher' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                Guru
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Nama Lengkap</label>
+                <input 
+                  type="text" 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder={role === 'student' ? "Contoh: Budi Santoso" : "Contoh: Ibu Rina"}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Token Kelas</label>
+                <input 
+                  type="text" 
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none uppercase font-mono"
+                  placeholder="Contoh: IPA-7A"
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  {role === 'student' 
+                    ? "*Masukkan token yang diberikan oleh guru Anda." 
+                    : "*Masukkan token kelas yang ingin Anda pantau (Misal: IPA-7A)."}
+                </p>
+              </div>
+              <button type="submit" className="w-full py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md">
+                {role === 'student' ? 'Mulai Belajar' : 'Buka Dasbor'} <i className="fas fa-arrow-right ml-2"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    /* =========================================================
+       TEACHER DASHBOARD
+       ========================================================= */
+    function TeacherDashboard({ userInfo, onLogout, db, fbUser }) {
+      const [submissions, setSubmissions] = useState([]);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        if (!fbUser) return;
+        
+        // Ambil data dari koleksi "submissions"
+        const colRef = collection(db, 'artifacts', appIdStr, 'public', 'data', 'submissions');
+        
+        const unsubscribe = onSnapshot(colRef, (snapshot) => {
+          const docs = [];
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            // Filter di memory berdasarkan token (menghindari Complex Queries)
+            if (data.token === userInfo.token) {
+              docs.push({ id: doc.id, ...data });
+            }
+          });
+          // Sortir berdasarkan waktu pengumpulan terbaru
+          docs.sort((a, b) => b.timestamp - a.timestamp);
+          setSubmissions(docs);
+          setLoading(false);
+        }, (error) => {
+          console.error("Gagal mengambil data:", error);
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      }, [userInfo.token]);
+
+      return (
+        <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-8">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">Dasbor Guru</h1>
+                <p className="text-slate-600">Selamat datang, {userInfo.name} | Token Kelas: <span className="font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">{userInfo.token}</span></p>
+              </div>
+              <button onClick={onLogout} className="mt-4 md:mt-0 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-bold transition-colors">
+                <i className="fas fa-sign-out-alt mr-2"></i> Keluar
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-800"><i className="fas fa-users mr-2 text-emerald-500"></i> Rekapitulasi Progres Siswa ({submissions.length})</h2>
+              </div>
+              
+              <div className="overflow-x-auto">
+                {loading ? (
+                  <div className="p-12 text-center text-slate-500"><i className="fas fa-circle-notch fa-spin text-3xl mb-4"></i><br/>Memuat data...</div>
+                ) : submissions.length === 0 ? (
+                  <div className="p-12 text-center text-slate-500">Belum ada siswa yang menyelesaikan modul dengan token <b>{userInfo.token}</b>.</div>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-600 text-sm uppercase tracking-wider">
+                        <th className="p-4 font-bold border-b">Nama Siswa</th>
+                        <th className="p-4 font-bold border-b text-center">Skor Kuis</th>
+                        <th className="p-4 font-bold border-b text-center">Self-Assess</th>
+                        <th className="p-4 font-bold border-b">Aksi Nyata</th>
+                        <th className="p-4 font-bold border-b">Solusi Kasus (Akhir)</th>
+                        <th className="p-4 font-bold border-b">Waktu</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {submissions.map((sub) => (
+                        <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-4 font-bold text-slate-800">{sub.studentName}</td>
+                          <td className="p-4 text-center">
+                            <span className={`px-2 py-1 rounded font-bold text-sm ${sub.stage3?.score === 3 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {sub.stage3?.score || 0}/3
+                            </span>
+                          </td>
+                          <td className="p-4 text-center font-bold text-indigo-600">{sub.stage2?.scale || '-'}/5</td>
+                          <td className="p-4">
+                            <ul className="list-disc pl-4 text-xs text-slate-600 space-y-1">
+                              {sub.stage4?.plans?.filter(p => p.trim() !== "").map((plan, i) => (
+                                <li key={i}>{plan}</li>
+                              ))}
+                            </ul>
+                          </td>
+                          <td className="p-4 text-xs text-slate-600 max-w-xs">
+                            <p><b>Sumber:</b> {sub.stage5?.source}</p>
+                            <p className="mt-1 truncate" title={sub.stage5?.reasoning}><b>Alasan:</b> {sub.stage5?.reasoning}</p>
+                            <p className="mt-1 truncate" title={sub.stage5?.reflection}><b>Refleksi:</b> {sub.stage5?.reflection}</p>
+                          </td>
+                          <td className="p-4 text-xs text-slate-500 whitespace-nowrap">
+                            {new Date(sub.timestamp).toLocaleString('id-ID')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* =========================================================
+       STUDENT APP WRAPPER
+       ========================================================= */
+    function StudentApp({ userInfo, globalData, setGlobalData, onLogout, db, fbUser }) {
+      const [currentStage, setCurrentStage] = useState(0);
+      const [isSubmitting, setIsSubmitting] = useState(false);
+
+      const stages = [
+        { title: "Beranda", icon: <i className="fas fa-book-open text-xl"></i> },
+        { title: "Pengalaman Nyata", icon: <i className="fas fa-play text-xl"></i> },
+        { title: "Observasi Reflektif", icon: <i className="fas fa-exclamation-triangle text-xl"></i> },
+        { title: "Konseptualisasi", icon: <i className="fas fa-lightbulb text-xl"></i> },
+        { title: "Eksperimen Aktif", icon: <i className="fas fa-upload text-xl"></i> },
+        { title: "Asesmen Akhir", icon: <i className="fas fa-award text-xl"></i> },
+      ];
+
+      const nextStage = () => setCurrentStage(prev => Math.min(prev + 1, stages.length - 1));
+      const prevStage = () => setCurrentStage(prev => Math.max(prev - 1, 0));
+
+      // FUNGSI UNTUK MENYIMPAN DATA KE FIREBASE
+      const submitAllData = async () => {
+        if (!fbUser) return;
+        setIsSubmitting(true);
+        try {
+          const docRef = collection(db, 'artifacts', appIdStr, 'public', 'data', 'submissions');
+          await addDoc(docRef, {
+            studentName: userInfo.name,
+            token: userInfo.token,
+            stage2: globalData.stage2,
+            stage3: globalData.stage3,
+            stage4: globalData.stage4,
+            stage5: globalData.stage5,
+            timestamp: Date.now()
+          });
+          setIsSubmitting(false);
+          return true;
+        } catch (error) {
+          console.error("Gagal menyimpan data:", error);
+          alert("Gagal mengirim data ke server. Pastikan koneksi internet Anda stabil.");
+          setIsSubmitting(false);
+          return false;
+        }
+      };
+
+      return (
+        <div className="min-h-screen">
+          <nav className="bg-emerald-700 text-white shadow-md sticky top-0 z-50">
+            <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <i className="fas fa-leaf text-2xl text-emerald-300"></i>
+                <h1 className="text-lg font-bold hidden sm:block">Energi untuk Kehidupan</h1>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-sm bg-emerald-800 px-3 py-1 rounded-full border border-emerald-600 shadow-inner hidden md:block">
+                  {userInfo.name} <span className="text-emerald-300 ml-1 font-mono">[{userInfo.token}]</span>
+                </span>
+                <div className="flex space-x-1 overflow-x-auto">
+                  {stages.map((stage, idx) => (
+                    <button key={idx} onClick={() => setCurrentStage(idx)}
+                      className={`p-2 rounded-full w-10 h-10 transition-colors flex items-center justify-center ${currentStage === idx ? 'bg-emerald-500 text-white shadow-inner' : 'hover:bg-emerald-600 text-emerald-200'}`}
+                      title={stage.title}>
+                      {stage.icon}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={onLogout} className="text-emerald-200 hover:text-white" title="Keluar"><i className="fas fa-sign-out-alt text-lg"></i></button>
+              </div>
+            </div>
+          </nav>
+
+          <main className="max-w-4xl mx-auto px-4 py-8 pb-24">
+            {currentStage === 0 && <StageBeranda nextStage={nextStage} />}
+            {currentStage === 1 && <StageConcrete nextStage={nextStage} />}
+            {currentStage === 2 && <StageReflective data={globalData.stage2} setData={(d) => setGlobalData({...globalData, stage2: d})} nextStage={nextStage} />}
+            {currentStage === 3 && <StageAbstract data={globalData.stage3} setData={(d) => setGlobalData({...globalData, stage3: d})} nextStage={nextStage} />}
+            {currentStage === 4 && <StageActive data={globalData.stage4} setData={(d) => setGlobalData({...globalData, stage4: d})} nextStage={nextStage} />}
+            {currentStage === 5 && <StageAssessment data={globalData.stage5} setData={(d) => setGlobalData({...globalData, stage5: d})} submitAllData={submitAllData} isSubmitting={isSubmitting} />}
+          </main>
+
+          {currentStage > 0 && currentStage < 5 && (
+            <div className="fixed bottom-0 w-full bg-white border-t p-4 flex justify-center space-x-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-40">
+              <button onClick={prevStage} className="flex items-center px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors">
+                <i className="fas fa-chevron-left text-lg mr-2"></i> Sebelumnya
+              </button>
+              <button onClick={nextStage} className="flex items-center px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-md">
+                Selanjutnya <i className="fas fa-chevron-right text-lg ml-2"></i>
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* =========================================================
+       STAGE COMPONENTS (With State Props)
+       ========================================================= */
+    function StageBeranda({ nextStage }) {
+      return (
+        <div className="space-y-8 animate-fade-in text-center pt-8">
+          <div className="inline-block w-24 h-24 bg-emerald-100 rounded-full mb-4 shadow-sm text-emerald-600 flex items-center justify-center mx-auto">
+            <i className="fas fa-leaf text-5xl"></i>
+          </div>
+          <h1 className="text-4xl md:text-5xl font-extrabold text-slate-800 tracking-tight">
+            Energi untuk Kehidupan: <br/>
+            <span className="text-emerald-600">Menjaga Keseimbangan Semesta</span>
+          </h1>
+          <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
+            Modul interaktif pembelajaran mandiri untuk memahami konsep energi, menghindari pemborosan (<i>ishraf</i>), dan menjaga keseimbangan alam.
+          </p>
+          <button onClick={nextStage} className="inline-flex items-center px-8 py-4 bg-emerald-600 text-white text-lg font-bold rounded-full hover:bg-emerald-700 hover:scale-105 transition-all shadow-lg hover:shadow-emerald-500/30">
+            Mulai Petualangan <i className="fas fa-play ml-3 text-lg"></i>
+          </button>
+        </div>
+      );
+    }
+
+    function StageConcrete() {
+      // (Simplified for brevity, similar to original)
+      const [itemsOn, setItemsOn] = useState({ lamp: true, ac: true, tap: true });
+      const [message, setMessage] = useState("");
+      const isAllOff = !itemsOn.lamp && !itemsOn.ac && !itemsOn.tap;
+
+      const toggleItem = (item) => {
+        setItemsOn(prev => {
+          const newState = { ...prev, [item]: !prev[item] };
+          if (item === 'lamp' && newState.lamp === false) setMessage("Bagus! Mematikan lampu di siang hari menghemat energi listrik.");
+          if (item === 'ac' && newState.ac === false) setMessage("Suhu ruangan sudah sejuk. Mematikan AC mencegah pemborosan berlebih.");
+          if (item === 'tap' && newState.tap === false) setMessage("Alhamdulillah, keran dimatikan. Thaharah tidak perlu membuang-buang air.");
+          return newState;
+        });
+      };
+
+      return (
+        <div className="space-y-8 animate-fade-in">
+          <div className="text-center">
+            <span className="text-sm font-bold text-emerald-600 uppercase tracking-wider">Tahap 1</span>
+            <h2 className="text-3xl font-bold mb-2">Pengalaman Nyata</h2>
+          </div>
+          <div className="bg-slate-900 rounded-2xl overflow-hidden shadow-xl relative border-4 border-slate-800">
+            <div className="p-6 text-white bg-gradient-to-b from-slate-800 to-transparent">
+              <h3 className="text-xl font-bold flex items-center"><i className="fas fa-exclamation-triangle text-xl text-yellow-400 mr-3"></i> Simulasi: 24 Jam Tanpa Listrik</h3>
+              <p className="text-sm text-slate-300 mt-2 max-w-xl">Bumi kehabisan energi. Layar perlahan gelap. Klik benda elektronik untuk mematikannya!</p>
+            </div>
+            <div className={`h-64 transition-all duration-1000 flex items-center justify-around relative ${isAllOff ? 'bg-slate-900' : 'bg-slate-700'}`}>
+              <button onClick={() => toggleItem('lamp')} className="flex flex-col items-center group relative">
+                <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-500 ${itemsOn.lamp ? 'bg-yellow-100 shadow-[0_0_50px_rgba(253,224,71,0.8)]' : 'bg-slate-800'}`}>
+                  <i className={`fas fa-lightbulb text-5xl ${itemsOn.lamp ? 'text-yellow-500' : 'text-slate-600'}`}></i>
+                </div>
+              </button>
+              <button onClick={() => toggleItem('ac')} className="flex flex-col items-center group relative">
+                <div className={`w-24 h-24 rounded-2xl flex items-center justify-center transition-all duration-500 ${itemsOn.ac ? 'bg-blue-50 shadow-[0_0_30px_rgba(191,219,254,0.6)]' : 'bg-slate-800'}`}>
+                  <i className={`fas fa-fan text-5xl ${itemsOn.ac ? 'text-blue-500 animate-spin-slow' : 'text-slate-600'}`}></i>
+                </div>
+              </button>
+              <button onClick={() => toggleItem('tap')} className="flex flex-col items-center group relative">
+                <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-500 ${itemsOn.tap ? 'bg-cyan-50 shadow-[0_0_40px_rgba(165,243,252,0.6)]' : 'bg-slate-800'}`}>
+                  <i className={`fas fa-tint text-5xl ${itemsOn.tap ? 'text-cyan-500 animate-bounce' : 'text-slate-600'}`}></i>
+                </div>
+              </button>
+            </div>
+            <div className="min-h-[4rem] bg-slate-800 text-emerald-300 p-4 text-center border-t border-slate-700 flex items-center justify-center font-medium">
+              {isAllOff ? "Luar biasa! Kamu telah menghemat energi hari ini." : (message || "Masih ada benda yang menyala tanpa digunakan (ishraf). Segera matikan!")}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function StageReflective({ data, setData }) {
+      const [sliderVal, setSliderVal] = useState(50);
+      const [isPlaying, setIsPlaying] = useState(false);
+
+      return (
+        <div className="space-y-8 animate-fade-in">
+          <div className="text-center">
+            <span className="text-sm font-bold text-emerald-600 uppercase tracking-wider">Tahap 2</span>
+            <h2 className="text-3xl font-bold mb-2">Observasi Reflektif</h2>
+          </div>
+          
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h3 className="text-xl font-bold mb-4 flex items-center">
+              <i className="fas fa-book-open text-xl mr-3 text-emerald-500"></i> Jurnal Refleksi
+            </h3>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Apa yang kamu rasakan saat melihat kerusakan lingkungan? Mengapa kita sering lupa mematikan lampu?
+            </label>
+            <textarea rows={4} value={data.journal}
+              onChange={(e) => setData({ ...data, journal: e.target.value })}
+              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+              placeholder="Tuliskan perasaan dan pemikiranmu di sini..."
+            />
+          </div>
+
+          <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100">
+            <h3 className="text-xl font-bold mb-4 text-emerald-800">Self-Assessment</h3>
+            <p className="mb-4 text-slate-600">Dalam skala 1-5, seberapa sering kamu menjaga keseimbangan alam seminggu terakhir?</p>
+            <div className="flex justify-between max-w-lg mx-auto">
+              {[1, 2, 3, 4, 5].map((num) => (
+                <button key={num} onClick={() => setData({ ...data, scale: num })}
+                  className={`w-12 h-12 rounded-full font-bold text-lg flex items-center justify-center transition-all
+                    ${data.scale === num ? 'bg-emerald-600 text-white shadow-lg scale-110' : 'bg-white text-emerald-600 hover:bg-emerald-100 border border-emerald-200'}`}>
+                  {num}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-between max-w-lg mx-auto mt-2 text-xs text-emerald-600/80 font-medium px-2">
+              <span>Sangat Jarang</span><span>Sangat Sering</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function StageAbstract({ data, setData }) {
+      const quizQuestions = [
+        { q: "Menurut Hukum Kekekalan Energi, energi hanya dapat...", opts: ["Dihilangkan", "Diubah bentuknya", "Disimpan"], ans: 1 },
+        { q: "Menggunakan energi secara berlebihan dalam Islam disebut...", opts: ["Thaharah", "Qana'ah", "Ishraf / Fasad"], ans: 2 },
+        { q: "Energi dari air yang mengalir di bendungan disebut energi...", opts: ["Potensial -> Kinetik", "Kimia -> Panas", "Cahaya -> Listrik"], ans: 0 }
+      ];
+      
+      const [currentQ, setCurrentQ] = useState(0);
+      const [quizDone, setQuizDone] = useState(data.score > 0);
+
+      const handleAnswer = (idx) => {
+        let newScore = data.score;
+        if (idx === quizQuestions[currentQ].ans) newScore += 1;
+        
+        setData({ score: newScore });
+
+        if (currentQ < quizQuestions.length - 1) {
+          setCurrentQ(c => c + 1);
+        } else {
+          setQuizDone(true);
+        }
+      };
+
+      return (
+        <div className="space-y-8 animate-fade-in">
+          <div className="text-center">
+            <span className="text-sm font-bold text-emerald-600 uppercase tracking-wider">Tahap 3</span>
+            <h2 className="text-3xl font-bold mb-2">Konseptualisasi Abstrak</h2>
+          </div>
+
+          <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-md border border-slate-200 relative">
+            <h3 className="text-xl font-bold mb-6"><i className="fas fa-award text-xl mr-3 text-yellow-500"></i> Kuis Konsep</h3>
+            {!quizDone ? (
+              <div>
+                <div className="text-xs font-bold text-slate-400 uppercase mb-2">Pertanyaan {currentQ + 1} dari {quizQuestions.length}</div>
+                <p className="font-medium text-lg mb-4 text-slate-800">{quizQuestions[currentQ].q}</p>
+                <div className="space-y-2">
+                  {quizQuestions[currentQ].opts.map((opt, idx) => (
+                    <button key={idx} onClick={() => handleAnswer(idx)} className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 transition-colors">
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <i className={`fas fa-tree text-[6rem] mx-auto mb-4 block ${data.score === 3 ? 'text-emerald-500' : 'text-yellow-600'}`}></i>
+                <h4 className="text-2xl font-bold text-slate-800 mb-2">Kuis Selesai!</h4>
+                <p className="text-slate-600 mb-4">Kamu mendapatkan skor {data.score} dari {quizQuestions.length}.</p>
+                <button onClick={() => { setCurrentQ(0); setData({ score: 0 }); setQuizDone(false); }} className="text-emerald-600 underline text-sm font-medium hover:text-emerald-800">Ulangi Kuis</button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function StageActive({ data, setData }) {
+      const handlePlanChange = (index, value) => {
+        const newPlans = [...data.plans];
+        newPlans[index] = value;
+        setData({ ...data, plans: newPlans });
+      };
+
+      return (
+        <div className="space-y-8 animate-fade-in">
+          <div className="text-center">
+            <span className="text-sm font-bold text-emerald-600 uppercase tracking-wider">Tahap 4</span>
+            <h2 className="text-3xl font-bold mb-2">Eksperimen Aktif</h2>
+          </div>
+
+          <div className="bg-indigo-50 border border-indigo-200 p-6 rounded-2xl shadow-sm text-center">
+            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm border border-indigo-100 mx-auto mb-4">
+              <i className="fas fa-flask text-3xl text-indigo-500"></i>
+            </div>
+            <h3 className="text-xl font-bold mb-2 text-indigo-800">Eksplorasi Lab Virtual</h3>
+            <p className="text-sm text-indigo-600 mb-6 max-w-md mx-auto">Tingkatkan pemahamanmu melalui eksperimen simulasi langsung.</p>
+            <a href="https://019d9ebf-663d-7dac-a06a-a939c2ea0f82.arena.site/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md">
+              Buka Lab Virtual <i className="fas fa-external-link-alt ml-2"></i>
+            </a>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h3 className="text-xl font-bold mb-6 text-slate-800 border-b pb-2">Rencana Aksi 3 Langkah (Misi Detektif)</h3>
+            <div className="space-y-4">
+              {[1, 2, 3].map((num, idx) => (
+                <div key={num} className="flex items-start gap-3">
+                  <span className="bg-slate-800 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0">{num}</span>
+                  <input type="text" value={data.plans[idx]} onChange={(e) => handlePlanChange(idx, e.target.value)}
+                    placeholder={`Contoh aksi ${num}... (misal: Mencabut charger jika penuh)`}
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function StageAssessment({ data, setData, submitAllData, isSubmitting }) {
+      const [submitted, setSubmitted] = useState(false);
+
+      const handleFinalSubmit = async (e) => {
+        e.preventDefault();
+        const success = await submitAllData();
+        if (success) {
+          setSubmitted(true);
+        }
+      };
+
+      if (submitted) {
+        return (
+          <div className="text-center py-16 animate-fade-in">
+            <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6"><i className="fas fa-award text-5xl text-emerald-600"></i></div>
+            <h2 className="text-3xl font-bold text-slate-800 mb-4">Misi Selesai & Data Tersimpan!</h2>
+            <p className="text-lg text-slate-600 max-w-lg mx-auto mb-6">Terima kasih. Jawabanmu telah masuk ke Dasbor Guru. Jadilah pelopor keseimbangan alam di manapun kamu berada.</p>
+            <button onClick={() => window.location.reload()} className="px-6 py-2 bg-slate-200 rounded-lg font-bold text-slate-700 hover:bg-slate-300">Kembali ke Halaman Awal</button>
+          </div>
+        );
+      }
+
+      return (
+        <div className="space-y-8 animate-fade-in mb-20">
+          <div className="text-center">
+            <span className="text-sm font-bold text-emerald-600 uppercase tracking-wider">Asesmen Akhir</span>
+            <h2 className="text-3xl font-bold mb-2">Studi Kasus Interaktif</h2>
+          </div>
+
+          <div className="bg-slate-800 text-white p-6 rounded-2xl shadow-xl relative overflow-hidden">
+            <h3 className="text-xl font-bold mb-2 text-emerald-300">Skenario: Krisis Desa Harapan</h3>
+            <p className="text-slate-300 leading-relaxed text-sm">
+              "Desa Harapan yang terletak di lembah berangin kencang mengalami krisis listrik dan kekeringan akibat pompa diesel rusak yang mencemari lingkungan. Solusi apa yang kamu tawarkan?"
+            </p>
+          </div>
+
+          <form onSubmit={handleFinalSubmit} className="space-y-6">
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <label className="block font-bold text-slate-800 mb-4 text-sm">1. Pilih sumber energi alternatif paling tepat berdasarkan kondisi geografis.</label>
+              <div className="space-y-3">
+                {['Energi Surya (Panel Surya)', 'Energi Angin (Turbin Angin)', 'Energi Air (Kincir Air)', 'Energi Fosil'].map((opt, idx) => (
+                  <label key={idx} className="flex items-center p-3 border rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input type="radio" name="source" value={opt} checked={data.source === opt} onChange={(e) => setData({...data, source: e.target.value})} className="w-5 h-5 text-emerald-600" required />
+                    <span className="ml-3 text-slate-700 text-sm">{opt}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <label className="block font-bold text-slate-800 mb-2 text-sm">2. Mengapa solusi ini sesuai dengan prinsip menghindari kerusakan (fasad)?</label>
+              <textarea required rows={3} value={data.reasoning} onChange={(e) => setData({...data, reasoning: e.target.value})} className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-none text-sm"></textarea>
+            </div>
+
+            <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-200 shadow-sm">
+              <label className="block font-bold text-emerald-900 mb-2 text-sm">3. Apa janjimu mulai hari ini untuk alam?</label>
+              <textarea required rows={3} value={data.reflection} onChange={(e) => setData({...data, reflection: e.target.value})} className="w-full p-3 border border-emerald-300 bg-white rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-none text-sm"></textarea>
+            </div>
+
+            <button type="submit" disabled={isSubmitting} className={`w-full py-4 text-white font-bold rounded-xl text-lg flex items-center justify-center transition-all shadow-lg ${isSubmitting ? 'bg-slate-400' : 'bg-emerald-600 hover:bg-emerald-700 hover:-translate-y-1'}`}>
+              {isSubmitting ? <i className="fas fa-spinner fa-spin mr-2"></i> : <i className="fas fa-paper-plane mr-2"></i>}
+              {isSubmitting ? "Mengirim Data ke Guru..." : "Kumpulkan Jawaban ke Guru"}
+            </button>
+          </form>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
